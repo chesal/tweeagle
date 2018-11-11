@@ -1,5 +1,12 @@
 import twitter4j.conf.ConfigurationBuilder;
 import twitter4j.*;
+import twitter4j.json.DataObjectFactory;
+
+import java.io.BufferedWriter;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.util.ArrayList;
 
 /**
  * This is a crawler baby
@@ -7,6 +14,10 @@ import twitter4j.*;
 public class Crawler {
 
     private TwitterStream twitterStream;
+    private int tweetBucketCapacity; // The number of tweets to store per file
+    private int tweetBucketFilled; // The number of tweets in the current bucket
+    private ArrayList<String> tweetBucket; // The bucket of tweets
+    private int tweetBucketsCnt; // The amount of Tweet buckets filled
 
     public Crawler(String consumerKey,String consumerSecret,String accessToken, String accessTokenSecret){
         ConfigurationBuilder cb = new ConfigurationBuilder();
@@ -14,17 +25,36 @@ public class Crawler {
                 .setOAuthConsumerKey(consumerKey)
                 .setOAuthConsumerSecret(consumerSecret)
                 .setOAuthAccessToken(accessToken)
-                .setOAuthAccessTokenSecret(accessTokenSecret);
+                .setOAuthAccessTokenSecret(accessTokenSecret)
+                .setJSONStoreEnabled(true);
 
-        this.twitterStream = new TwitterStreamFactory(cb.build()).getInstance();
+        TwitterStreamFactory tsf = new TwitterStreamFactory(cb.build());
+        this.twitterStream = tsf.getInstance();
+        this.tweetBucketCapacity = 100; //default capacity
+        this.tweetBucketsCnt=0;
+        this.tweetBucket = new ArrayList<>();
+    }
 
-
+    public void crawl(){
         twitterStream.addListener(new StatusListener() {
             @Override
             public void onStatus(Status status) {
-                System.out.println("--------------------------------------------");
-                System.out.println(status.getText());
-                System.out.println("--------------------------------------------");
+
+                // Avoiding dublicates due to retweets
+                if(!status.isRetweet()){
+                    //Status To JSON String
+                    String statusJson = TwitterObjectFactory.getRawJSON(status);
+                    tweetBucket.add(statusJson);
+                    tweetBucketFilled++;
+                    // Tweet bucket is full
+                    if(tweetBucketFilled == tweetBucketCapacity){
+                        storeTweetBucket();
+                        tweetBucketFilled = 0;
+                        tweetBucket.clear();
+                        tweetBucketsCnt++;
+                    }
+                    System.out.println("Current Bucket Count: "+tweetBucketFilled+" Buckets Filled: "+tweetBucketsCnt);
+                }
             }
 
             @Override
@@ -49,7 +79,8 @@ public class Crawler {
 
             @Override
             public void onException(Exception ex) {
-                System.out.println("Ex");
+                ex.printStackTrace();
+                //System.out.println(ex.getStackTrace());
             }
         });
 
@@ -62,7 +93,28 @@ public class Crawler {
                 }});
 
         twitterStream.filter(tweetFilterQuery);
-        //twitterStream.sample();
     }
 
+    /**
+     * Stores Tweet Bucket in a file
+     */
+    public void storeTweetBucket(){
+        try {
+            PrintWriter pw = new PrintWriter(new FileWriter(("Data/"+tweetBucketsCnt+".txt")));
+            for (String tweet: tweetBucket ) {
+                pw.println(tweet);
+            }
+            pw.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    /***
+     * Changes default Tweet bucket capacity
+     * @param tweetBucketCapacity
+     */
+    public void setTweetBucketCapacity(int tweetBucketCapacity) {
+        this.tweetBucketCapacity = tweetBucketCapacity;
+    }
 }
